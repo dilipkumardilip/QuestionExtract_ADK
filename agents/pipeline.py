@@ -1,14 +1,13 @@
 """
 agents/pipeline.py
 ------------------
-Programmatic pipeline runner for the qextract multi-agent system.
+Programmatic single-agent pipeline runner for qextract.
 
 This module provides run_pipeline() — the main entry point used by
 both the FastAPI server (server.py) and the CLI (main.py).
 
-Instead of using ADK's session/runner infrastructure (which is designed
-for interactive chat), this module directly invokes the agents
-programmatically for batch processing with parallel page extraction.
+It makes exactly ONE LLM call per page to extract both text and visual
+bounding boxes simultaneously, then crops the images and assembles the final JSON.
 """
 
 from __future__ import annotations
@@ -38,7 +37,6 @@ from tools.crop_image import crop_region
 
 def _call_llm_with_image(instruction: str, page_path: str) -> str:
     """Call the LLM with an image and instruction, return raw text response.
-
     Supports both OpenAI and Gemini based on MODEL_PROVIDER.
     """
     if MODEL_PROVIDER == "gemini":
@@ -54,7 +52,6 @@ def _call_gemini(instruction: str, page_path: str) -> str:
 
     client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-    # Read image as bytes
     with open(page_path, "rb") as f:
         image_bytes = f.read()
 
@@ -85,7 +82,6 @@ def _call_openai(instruction: str, page_path: str) -> str:
 
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    # Read image as base64
     with open(page_path, "rb") as f:
         data = base64.b64encode(f.read()).decode("utf-8")
 
@@ -115,39 +111,6 @@ def _call_openai(instruction: str, page_path: str) -> str:
     return response.choices[0].message.content
 
 
-def _call_llm_text(instruction: str, user_message: str) -> str:
-    """Call the LLM with text only (no image), return raw text response."""
-    if MODEL_PROVIDER == "gemini":
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=f"{instruction}\n\n{user_message}")],
-                )
-            ],
-            config=types.GenerateContentConfig(temperature=0.0),
-        )
-        return response.text
-    else:
-        import openai
-
-        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.0,
-        )
-        return response.choices[0].message.content
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # JSON PARSING
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,129 +128,81 @@ def _parse_json(raw: str) -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PER-PAGE EXTRACTION
+# SINGLE PASS PAGE EXTRACTION & CROPPING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _extract_text_from_page(page_path: str) -> list[dict]:
-    """Run text extraction agent on a single page."""
-    instruction = load_instruction("text_extraction.md")
-    raw = _call_llm_with_image(instruction, page_path)
-    try:
-        return _parse_json(raw)
-    except json.JSONDecodeError:
-        print(f"  ⚠ Text extraction JSON parse failed for {page_path}")
-        return []
-
-
-def _extract_visuals_from_page(page_path: str) -> list[dict]:
-    """Run visual detection agent on a single page."""
-    instruction = load_instruction("visual_detection.md")
-    raw = _call_llm_with_image(instruction, page_path)
-    try:
-        return _parse_json(raw)
-    except json.JSONDecodeError:
-        print(f"  ⚠ Visual detection JSON parse failed for {page_path}")
-        return []
-
-
-def _process_single_page(page_path: str, page_num: int) -> dict:
-    """Process a single page: extract text + visuals in parallel.
+def _process_single_page(page_path: str, page_num: int) -> list[dict]:
+    """Process a single page: extract text and visuals in ONE LLM call, then crop.
 
     Args:
         page_path: Path to the page image.
         page_num: 1-based page number.
 
     Returns:
-        dict with keys: page_num, page_path, text_results, visual_results
+        List of finalized question dicts for this page.
     """
     print(f"  → Processing page {page_num}: {page_path}")
 
-    # Run text and visual extraction in parallel threads
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        text_future = executor.submit(_extract_text_from_page, page_path)
-        visual_future = executor.submit(_extract_visuals_from_page, page_path)
+    # 1. LLM Extraction (Text + Visual Bboxes via unified prompt)
+    instruction = load_instruction("extraction.md")
+    raw_response = _call_llm_with_image(instruction, page_path)
+    
+    try:
+        questions = _parse_json(raw_response)
+    except json.JSONDecodeError:
+        print(f"  ⚠ JSON parse failed for {page_path}")
+        return []
 
-        text_results = text_future.result()
-        visual_results = visual_future.result()
-
-    print(f"     Page {page_num}: {len(text_results)} question(s), "
-          f"{len(visual_results)} visual(s)")
-
-    return {
-        "page_num": page_num,
-        "page_path": page_path,
-        "text_results": text_results,
-        "visual_results": visual_results,
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MERGE + CROP LOGIC
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _merge_page_results(page_data: dict) -> list[dict]:
-    """Merge text + visual results for one page, crop visuals.
-
-    Returns list of merged question dicts.
-    """
-    text_results = page_data["text_results"]
-    visual_results = page_data["visual_results"]
-    page_path = page_data["page_path"]
-
-    # Initialise image fields
-    for q in text_results:
+    # 2. Process and Crop Visuals directly from the JSON
+    for q_idx, q in enumerate(questions):
         q["QuestionImage"] = None
-        for opt in q.get("Options", []):
-            opt.setdefault("Image", None)
-
-    # Match visuals to questions and crop
-    for v in visual_results:
-        q_idx = int(v.get("question_number", 0)) - 1
-        if q_idx < 0 or q_idx >= len(text_results):
-            continue
-
-        q = text_results[q_idx]
-        bbox = v.get("bbox", [])
-        if len(bbox) != 4:
-            continue
-
-        x_left, y_top, x_right, y_bottom = bbox
-        desc = v.get("description", "visual")
-
-        if v.get("belongs_to") == "question":
-            crop_result = crop_region(
+        
+        # Crop main question visual if bbox exists
+        q_bbox = q.pop("QuestionVisualBbox", None)
+        q_desc = q.pop("QuestionVisualDesc", "visual")
+        
+        if isinstance(q_bbox, list) and len(q_bbox) == 4:
+            x_left, y_top, x_right, y_bottom = q_bbox
+            crop_res = crop_region(
                 page_path=page_path,
-                x_left=x_left, y_top=y_top,
-                x_right=x_right, y_bottom=y_bottom,
-                label=f"q{q_idx + 1}_main",
+                x_left=x_left, y_top=y_top, x_right=x_right, y_bottom=y_bottom,
+                label=f"q{q.get('printed_number', q_idx + 1)}_main"
             )
-            if crop_result["status"] == "success":
+            if crop_res["status"] == "success":
                 q["QuestionImage"] = {
-                    "path": crop_result["cropped_path"],
-                    "filename": crop_result["filename"],
-                    "description": desc,
+                    "path": crop_res["cropped_path"],
+                    "filename": crop_res["filename"],
+                    "description": q_desc
                 }
+                
+        # Crop option visuals if bbox exists
+        for opt in q.get("Options", []):
+            opt["Image"] = None
+            opt_bbox = opt.pop("VisualBbox", None)
+            opt_desc = opt.pop("VisualDesc", "option visual")
+            
+            if isinstance(opt_bbox, list) and len(opt_bbox) == 4:
+                olabel = opt.get("OptionLabel", "")
+                x_left, y_top, x_right, y_bottom = opt_bbox
+                crop_res = crop_region(
+                    page_path=page_path,
+                    x_left=x_left, y_top=y_top, x_right=x_right, y_bottom=y_bottom,
+                    label=f"q{q.get('printed_number', q_idx + 1)}_opt{olabel}"
+                )
+                if crop_res["status"] == "success":
+                    opt["Image"] = {
+                        "path": crop_res["cropped_path"],
+                        "filename": crop_res["filename"],
+                        "description": opt_desc
+                    }
 
-        elif v.get("belongs_to") == "option":
-            label = v.get("option_label") or ""
-            for opt in q.get("Options", []):
-                if opt.get("OptionLabel") == label:
-                    crop_result = crop_region(
-                        page_path=page_path,
-                        x_left=x_left, y_top=y_top,
-                        x_right=x_right, y_bottom=y_bottom,
-                        label=f"q{q_idx + 1}_opt{label}",
-                    )
-                    if crop_result["status"] == "success":
-                        opt["Image"] = {
-                            "path": crop_result["cropped_path"],
-                            "filename": crop_result["filename"],
-                            "description": desc,
-                        }
-                    break
+    print(f"     Page {page_num}: Extracted {len(questions)} question(s).")
+    return questions
 
-    return text_results
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CROSS-PAGE CONTINUATION PROCESSING
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _handle_cross_page_continuations(all_page_questions: list[list[dict]]) -> list[dict]:
     """Merge partial questions across page boundaries.
@@ -356,19 +271,8 @@ def _handle_cross_page_continuations(all_page_questions: list[list[dict]]) -> li
 def run_pipeline(input_path: str) -> tuple[list[dict], dict]:
     """Extract all questions from an exam file (PDF or image).
 
-    This is the main entry point used by server.py and main.py.
-
-    Args:
-        input_path: Path to a PDF or image file.
-
     Returns:
         tuple[list[dict], dict]: (questions, metadata)
-            - questions: list of extracted question dicts
-            - metadata: dict with page_count, model_provider, etc.
-
-    Raises:
-        ValueError: If file type is not supported.
-        FileNotFoundError: If input file doesn't exist.
     """
     input_path = str(Path(input_path).resolve())
     ext = Path(input_path).suffix.lower()
@@ -382,7 +286,7 @@ def run_pipeline(input_path: str) -> tuple[list[dict], dict]:
             f"(accepted: .pdf .png .jpg .jpeg)"
         )
 
-    print(f"\n🚀 qextract pipeline starting...")
+    print(f"\n🚀 qextract Single-Agent pipeline starting...")
     print(f"   Model: {MODEL_PROVIDER.upper()}")
     print(f"   Input: {input_path}\n")
 
@@ -399,7 +303,7 @@ def run_pipeline(input_path: str) -> tuple[list[dict], dict]:
 
     # ── Step 2: Process pages in parallel ─────────────────────────────────────
     max_workers = min(len(page_paths), 4)  # Cap at 4 parallel pages
-    page_results: list[dict] = [None] * len(page_paths)
+    all_page_questions: list[list[dict]] = [[] for _ in range(len(page_paths))]
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {}
@@ -410,26 +314,12 @@ def run_pipeline(input_path: str) -> tuple[list[dict], dict]:
         for future in as_completed(futures):
             idx = futures[future]
             try:
-                page_results[idx] = future.result()
+                all_page_questions[idx] = future.result()
             except Exception as exc:
                 print(f"  ⚠ Page {idx + 1} failed: {exc}")
                 traceback.print_exc()
-                page_results[idx] = {
-                    "page_num": idx + 1,
-                    "page_path": page_paths[idx],
-                    "text_results": [],
-                    "visual_results": [],
-                }
 
-    # ── Step 3: Merge results per page (crop visuals) ─────────────────────────
-    print(f"\n🔗 Merging results and cropping visuals...")
-    all_page_questions: list[list[dict]] = []
-
-    for page_data in page_results:
-        merged = _merge_page_results(page_data)
-        all_page_questions.append(merged)
-
-    # ── Step 4: Handle cross-page continuations ───────────────────────────────
+    # ── Step 3: Handle cross-page continuations ───────────────────────────────
     final_questions = _handle_cross_page_continuations(all_page_questions)
 
     # ── Build metadata ────────────────────────────────────────────────────────

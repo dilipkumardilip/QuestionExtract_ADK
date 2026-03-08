@@ -57,8 +57,7 @@ def get_model():
                 "OPENAI_API_KEY is not set.\n"
                 "Add it to your .env file:  OPENAI_API_KEY=your_key_here"
             )
-        from google.adk.models.lite_llm import LiteLlm
-        return LiteLlm(model="openai/gpt-4o-mini")
+        return "gpt-4o-mini"
 
     else:
         raise ValueError(
