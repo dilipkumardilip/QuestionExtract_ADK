@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>qextract — Debug UI</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #232636;
+      --border: #2e3147;
+      --accent: #6c63ff;
+      --accent2: #a78bfa;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --text: #e2e8f0;
+      --muted: #8892a4;
+      --radius: 10px;
+      --mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -.3px;
+    }
+
+    header .badge {
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+
+    header .health-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      margin-left: auto;
+      transition: background .3s;
+    }
+
+    header .health-dot.ok {
+      background: var(--green);
+    }
+
+    header .health-dot.err {
+      background: var(--red);
+    }
+
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 24px;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 24px;
+    }
+
+    /* ── Card ──────────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* ── Upload panel ──────────────────────────────────────────────────────── */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 32px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+
+    #drop-zone.dragging {
+      border-color: var(--accent);
+      background: rgba(108, 99, 255, .07);
+    }
+
+    #drop-zone input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    #drop-zone .icon {
+      font-size: 36px;
+      margin-bottom: 8px;
+    }
+
+    #drop-zone p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    #drop-zone strong {
+      color: var(--text);
+    }
+
+    #file-name {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--accent2);
+      word-break: break-all;
+    }
+
+    /* ── Buttons ───────────────────────────────────────────────────────────── */
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 18px;
+      transition: opacity .15s, transform .1s;
+    }
+
+    button:active {
+      transform: scale(.97);
+    }
+
+    button:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      width: 100%;
+      margin-top: 14px;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      opacity: .88;
+    }
+
+    .btn-sm {
+      font-size: 11px;
+      padding: 4px 10px;
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-sm:hover {
+      color: var(--text);
+    }
+
+    /* ── Progress bar ──────────────────────────────────────────────────────── */
+    #progress-wrap {
+      margin-top: 14px;
+      display: none;
+    }
+
+    #progress-wrap.visible {
+      display: block;
+    }
+
+    #progress-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    #progress-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    #progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 99px;
+      width: 0%;
+      transition: width .4s ease;
+    }
+
+    /* ── Stats row ─────────────────────────────────────────────────────────── */
+    #stats {
+      display: none;
+      margin-top: 16px;
+      gap: 8px;
+      flex-direction: column;
+    }
+
+    #stats.visible {
+      display: flex;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .stat-key {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stat-val {
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .stat-val.green {
+      color: var(--green);
+    }
+
+    .stat-val.red {
+      color: var(--red);
+    }
+
+    .stat-val.yellow {
+      color: var(--yellow);
+    }
+
+    /* ── Error banner ──────────────────────────────────────────────────────── */
+    #error-box {
+      display: none;
+      margin-top: 14px;
+      background: rgba(239, 68, 68, .1);
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+
+    #error-box.visible {
+      display: block;
+    }
+
+    #error-box .err-title {
+      color: var(--red);
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    #error-box pre {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #fca5a5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    /* ── Results panel ─────────────────────────────────────────────────────── */
+    #results-panel {
+      min-width: 0;
+    }
+
+    /* ── Toolbar ───────────────────────────────────────────────────────────── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar input[type=search] {
+      flex: 1;
+      min-width: 180px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 12px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .toolbar input[type=search]:focus {
+      border-color: var(--accent);
+    }
+
+    #q-count {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    /* ── Question list ─────────────────────────────────────────────────────── */
+    #question-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: calc(100vh - 220px);
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    #question-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #question-list::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .q-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color .2s;
+    }
+
+    .q-card:hover {
+      border-color: var(--accent);
+    }
+
+    .q-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 14px 16px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .q-num {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent2);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .q-preview {
+      flex: 1;
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .q-tags {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    .tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 99px;
+      letter-spacing: .3px;
+    }
+
+    .tag.visual {
+      background: rgba(108, 99, 255, .2);
+      color: var(--accent2);
+      border: 1px solid var(--accent);
+    }
+
+    .tag.hindi {
+      background: rgba(245, 158, 11, .15);
+      color: var(--yellow);
+      border: 1px solid var(--yellow);
+    }
+
+    .tag.no-text {
+      background: rgba(239, 68, 68, .15);
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+
+    .tag.nat {
+      background: rgba(34, 197, 94, .15);
+      color: var(--green);
+      border: 1px solid var(--green);
+    }
+
+    .chevron {
+      color: var(--muted);
+      transition: transform .2s;
+      flex-shrink: 0;
+    }
+
+    .q-card.open .chevron {
+      transform: rotate(90deg);
+    }
+
+    /* ── Question detail (expanded) ────────────────────────────────────────── */
+    .q-body {
+      display: none;
+      border-top: 1px solid var(--border);
+      padding: 16px;
+    }
+
+    .q-card.open .q-body {
+      display: block;
+    }
+
+    .field-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      margin-top: 14px;
+    }
+
+    .field-label:first-child {
+      margin-top: 0;
+    }
+
+    .field-value {
+      font-size: 13px;
+      color: var(--text);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .field-null {
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    .crop-img {
+      max-width: 100%;
+      max-height: 220px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      display: block;
+      margin-top: 6px;
+      background: #000;
+      object-fit: contain;
+    }
+
+    .img-error {
+      font-size: 11px;
+      color: var(--red);
+      margin-top: 4px;
+    }
+
+    /* ── Options table ─────────────────────────────────────────────────────── */
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    @media (max-width: 700px) {
+      .options-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .opt-cell {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .opt-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent2);
+      margin-bottom: 4px;
+    }
+
+    .opt-text {
+      font-size: 13px;
+    }
+
+    .opt-null {
+      font-size: 12px;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* ── Raw JSON tab ──────────────────────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .tab {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 16px;
+      cursor: pointer;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+      background: none;
+      border-radius: 0;
+    }
+
+    .tab.active {
+      color: var(--accent2);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    pre.json-view {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      overflow: auto;
+      max-height: calc(100vh - 240px);
+      white-space: pre;
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    .json-key {
+      color: #93c5fd;
+    }
+
+    .json-str {
+      color: #86efac;
+    }
+
+    .json-num {
+      color: #fcd34d;
+    }
+
+    .json-null {
+      color: var(--muted);
+    }
+
+    .json-bool {
+      color: #f9a8d4;
+    }
+
+    /* ── Empty / placeholder ───────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+
+    .empty-state .big-icon {
+      font-size: 52px;
+      margin-bottom: 14px;
+    }
+
+    .empty-state p {
+      font-size: 14px;
+    }
+
+    /* ── Scrollbar for JSON ────────────────────────────────────────────────── */
+    pre.json-view::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    pre.json-view::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    /* ── Responsive ────────────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      #question-list {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <span style="font-size:22px">📄</span>
+    <h1>qextract</h1>
+    <span class="badge">Debug UI</span>
+    <span id="health-dot" class="health-dot" title="API health"></span>
+  </header>
+
+  <main>
+    <!-- ── LEFT: Upload panel ──────────────────────────────────────────────── -->
+    <aside>
+      <div class="card">
+        <div class="card-title">Upload Exam Paper</div>
+
+        <div id="drop-zone">
+          <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg" />
+          <div class="icon">📎</div>
+          <p><strong>Click or drag & drop</strong></p>
+          <p>PDF · PNG · JPG · JPEG</p>
+        </div>
+        <div id="file-name"></div>
+
+        <button class="btn-primary" id="extract-btn" disabled>
+          ⚡ Extract Questions
+        </button>
+
+        <div id="progress-wrap">
+          <div id="progress-label">Processing…</div>
+          <div id="progress-bar">
+            <div id="progress-fill"></div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div id="stats">
+          <div style="height:1px;background:var(--border);margin: 10px 0"></div>
+          <div class="stat-row">
+            <span class="stat-key">Questions found</span>
+            <span class="stat-val green" id="stat-count">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-key">With visuals</span>
+            <span class="stat-val yellow" id="stat-visuals">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-key">Hindi present</span>
+            <span class="stat-val" id="stat-hindi">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-key">Model</span>
+            <span class="stat-val" style="color:var(--accent2)" id="stat-cost">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-key">Job ID</span>
+            <span class="stat-val" style="font-size:10px;font-family:var(--mono);color:var(--muted)"
+              id="stat-job">—</span>
+          </div>
+        </div>
+
+        <!-- Error box -->
+        <div id="error-box">
+          <div class="err-title">⚠ Extraction Error</div>
+          <pre id="error-pre"></pre>
+        </div>
+      </div>
+
+      <!-- Debug tips -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">Debug Tips</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--muted)">
+          <p>🔑 <strong style="color:var(--text)">API Key</strong><br>Set <code>OPENAI_API_KEY</code> or
+            <code>GOOGLE_API_KEY</code> in
+            <code>.env</code> + <code>MODEL_PROVIDER</code>
+          </p>
+          <p>📐 <strong style="color:var(--text)">Image not cropped?</strong><br>Bounding box coords must be 0–1
+            normalised. Check the Raw JSON tab.</p>
+          <p>🈳 <strong style="color:var(--text)">Hindi missing?</strong><br>Gemini needs ≥300 DPI for accurate
+            Devanagari OCR.</p>
+          <p>📄 <strong style="color:var(--text)">PDF pages</strong><br>Page PNGs saved to
+            <code>images_output/pages/</code>
+          </p>
+          <p>🖼 <strong style="color:var(--text)">Crops</strong><br>All crops in <code>images_output/</code> — served at
+            <code>/images/…</code>
+          </p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── RIGHT: Results panel ─────────────────────────────────────────────── -->
+    <section id="results-panel">
+      <div class="tab-bar">
+        <button class="tab active" data-tab="questions">Questions</button>
+        <button class="tab" data-tab="raw">Raw JSON</button>
+      </div>
+
+      <!-- Questions tab -->
+      <div class="tab-panel active" id="tab-questions">
+        <div class="toolbar">
+          <input type="search" id="search-box" placeholder="Search questions…" />
+          <span id="q-count"></span>
+          <button class="btn-sm" id="expand-all">Expand All</button>
+          <button class="btn-sm" id="collapse-all">Collapse All</button>
+        </div>
+        <div id="question-list">
+          <div class="empty-state">
+            <div class="big-icon">🔍</div>
+            <p>Upload an exam paper and click<br><strong>Extract Questions</strong> to begin.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Raw JSON tab -->
+      <div class="tab-panel" id="tab-raw">
+        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+          <span style="font-size:12px;color:var(--muted);flex:1">Syntax-highlighted output</span>
+          <button class="btn-sm" id="copy-json">📋 Copy JSON</button>
+          <button class="btn-sm" id="download-json">⬇ Download</button>
+        </div>
+        <pre class="json-view" id="json-pre"><span style="color:var(--muted)">// No data yet</span></pre>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ── State ─────────────────────────────────────────────────────────────────────
+    let allQuestions = [];
+    let rawResult = null;
+    let selectedFile = null;
+
+    // ── DOM refs ──────────────────────────────────────────────────────────────────
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const fileNameEl = document.getElementById('file-name');
+    const extractBtn = document.getElementById('extract-btn');
+    const progressWrap = document.getElementById('progress-wrap');
+    const progressFill = document.getElementById('progress-fill');
+    const progressLbl = document.getElementById('progress-label');
+    const statsEl = document.getElementById('stats');
+    const errorBox = document.getElementById('error-box');
+    const errorPre = document.getElementById('error-pre');
+    const questionList = document.getElementById('question-list');
+    const searchBox = document.getElementById('search-box');
+    const qCount = document.getElementById('q-count');
+    const jsonPre = document.getElementById('json-pre');
+    const healthDot = document.getElementById('health-dot');
+
+    // ── Health check ──────────────────────────────────────────────────────────────
+    async function checkHealth() {
+      try {
+        const r = await fetch('/health');
+        healthDot.className = 'health-dot ' + (r.ok ? 'ok' : 'err');
+      } catch { healthDot.className = 'health-dot err'; }
+    }
+    checkHealth();
+    setInterval(checkHealth, 15000);
+
+    // ── File selection ────────────────────────────────────────────────────────────
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) selectFile(fileInput.files[0]);
+    });
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragging'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragging'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault(); dropZone.classList.remove('dragging');
+      if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]);
+    });
+
+    function selectFile(f) {
+      selectedFile = f;
+      fileNameEl.textContent = `📎 ${f.name}  (${(f.size / 1024).toFixed(1)} KB)`;
+      extractBtn.disabled = false;
+      hideError();
+    }
+
+    // ── Extract ───────────────────────────────────────────────────────────────────
+    extractBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      extractBtn.disabled = true;
+      hideError();
+      statsEl.classList.remove('visible');
+      questionList.innerHTML = '';
+      jsonPre.innerHTML = '<span style="color:var(--muted)">// Processing…</span>';
+
+      showProgress('Uploading…', 10);
+
+      const fd = new FormData();
+      fd.append('file', selectedFile);
+
+      let result;
+      try {
+        showProgress('Running multi-agent pipeline…', 35);
+        const res = await fetch('/extract', { method: 'POST', body: fd });
+        showProgress('Parsing response…', 75);
+        result = await res.json();
+      } catch (err) {
+        showError('Network / server error:\n' + err.message);
+        hideProgress();
+        extractBtn.disabled = false;
+        return;
+      }
+
+      showProgress('Rendering…', 95);
+      rawResult = result;
+      allQuestions = result.questions || [];
+
+      renderStats(result);
+      renderQuestions(allQuestions);
+      renderJson(result);
+
+      showProgress('Done', 100);
+      setTimeout(hideProgress, 600);
+
+      if (result.error) {
+        showError(result.error);
+      }
+
+      extractBtn.disabled = false;
+    });
+
+    // ── Progress helpers ──────────────────────────────────────────────────────────
+    function showProgress(label, pct) {
+      progressWrap.classList.add('visible');
+      progressLbl.textContent = label;
+      progressFill.style.width = pct + '%';
+    }
+    function hideProgress() {
+      progressWrap.classList.remove('visible');
+      progressFill.style.width = '0%';
+    }
+    function showError(msg) {
+      errorBox.classList.add('visible');
+      errorPre.textContent = msg;
+    }
+    function hideError() {
+      errorBox.classList.remove('visible');
+      errorPre.textContent = '';
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────────────
+    function renderStats(result) {
+      const qs = result.questions || [];
+      const visuals = qs.filter(q =>
+        q.QuestionImage || (q.Options || []).some(o => o.Image)
+      ).length;
+      const hindi = qs.filter(q => q.QuestionTextHindi).length;
+      const meta = result.metadata || {};
+
+      document.getElementById('stat-count').textContent = qs.length;
+      document.getElementById('stat-visuals').textContent = visuals;
+      document.getElementById('stat-hindi').textContent = hindi;
+      document.getElementById('stat-cost').textContent = meta.model_provider ? meta.model_provider.toUpperCase() : '—';
+      document.getElementById('stat-job').textContent = result.job_id || '—';
+      statsEl.classList.add('visible');
+    }
+
+    // ── Render questions ──────────────────────────────────────────────────────────
+    function renderQuestions(qs) {
+      qCount.textContent = qs.length + ' question' + (qs.length !== 1 ? 's' : '');
+      if (!qs.length) {
+        questionList.innerHTML = '<div class="empty-state"><div class="big-icon">🈳</div><p>No questions extracted.</p></div>';
+        return;
+      }
+      questionList.innerHTML = '';
+      qs.forEach((q, i) => questionList.appendChild(buildQCard(q, i)));
+    }
+
+    function buildQCard(q, i) {
+      const card = document.createElement('div');
+      card.className = 'q-card';
+
+      // Tags
+      const tags = [];
+      if (q.QuestionImage) tags.push('<span class="tag visual">Visual</span>');
+      if (q.QuestionTextHindi) tags.push('<span class="tag hindi">Hindi</span>');
+      if (!q.QuestionText && !q.QuestionTextHindi) tags.push('<span class="tag no-text">No Text</span>');
+      if (!q.Options || q.Options.length === 0) tags.push('<span class="tag nat">NAT</span>');
+
+      const preview = q.QuestionText
+        ? q.QuestionText.slice(0, 120) + (q.QuestionText.length > 120 ? '…' : '')
+        : (q.QuestionTextHindi
+          ? q.QuestionTextHindi.slice(0, 120) + '…'
+          : '<span class="field-null">Visual-only question</span>');
+
+      card.innerHTML = `
+    <div class="q-header">
+      <span class="q-num">Q ${i + 1}</span>
+      <span class="q-preview">${escHtml(preview instanceof String ? preview : (q.QuestionText ? q.QuestionText.slice(0, 120) : ''))}</span>
+      <div class="q-tags">${tags.join('')}</div>
+      <span class="chevron">▶</span>
+    </div>
+    <div class="q-body">${buildBody(q, i)}</div>`;
+
+      // Patch preview for null-text case
+      const previewEl = card.querySelector('.q-preview');
+      if (!q.QuestionText && !q.QuestionTextHindi) {
+        previewEl.innerHTML = '<span class="field-null">Visual-only question</span>';
+      } else if (!q.QuestionText && q.QuestionTextHindi) {
+        previewEl.textContent = q.QuestionTextHindi.slice(0, 120);
+      }
+
+      card.querySelector('.q-header').addEventListener('click', () => {
+        card.classList.toggle('open');
+      });
+      return card;
+    }
+
+    function buildBody(q, idx) {
+      let html = '';
+
+      // English text
+      html += `<div class="field-label">English Question Text</div>`;
+      html += q.QuestionText
+        ? `<div class="field-value">${escHtml(q.QuestionText)}</div>`
+        : `<div class="field-value field-null">null</div>`;
+
+      // Hindi text
+      html += `<div class="field-label">Hindi Question Text</div>`;
+      html += q.QuestionTextHindi
+        ? `<div class="field-value">${escHtml(q.QuestionTextHindi)}</div>`
+        : `<div class="field-value field-null">null</div>`;
+
+      // Question image
+      html += `<div class="field-label">Question Image</div>`;
+      if (q.QuestionImage && typeof q.QuestionImage === 'object' && q.QuestionImage.filename) {
+        const src = imgSrc(q.QuestionImage.path || q.QuestionImage.filename);
+        const desc = q.QuestionImage.description || 'Question visual';
+        html += `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">📎 ${escHtml(desc)}</div>`;
+        html += `<img class="crop-img" src="${src}" alt="${escHtml(desc)}"
+             onerror="this.style.display='none';this.nextSibling.style.display='block'" />
+             <div class="img-error" style="display:none">⚠ Could not load: ${escHtml(q.QuestionImage.filename)}</div>`;
+      } else if (q.QuestionImage && typeof q.QuestionImage === 'string') {
+        const src = imgSrc(q.QuestionImage);
+        html += `<img class="crop-img" src="${src}" alt="Question visual"
+             onerror="this.style.display='none';this.nextSibling.style.display='block'" />
+             <div class="img-error" style="display:none">⚠ Could not load: ${escHtml(q.QuestionImage)}</div>`;
+      } else {
+        html += `<div class="field-value field-null">null</div>`;
+      }
+
+      // Options
+      const opts = q.Options || [];
+      if (opts.length === 0) {
+        html += `<div class="field-label">Options</div><div class="field-value field-null">None (NAT / integer-type question)</div>`;
+      } else {
+        html += `<div class="field-label">Options (${opts.length})</div><div class="options-grid">`;
+        opts.forEach(opt => {
+          html += `<div class="opt-cell">
+        <div class="opt-label">${escHtml(opt.OptionLabel || '?')}</div>`;
+          if (opt.Text) {
+            html += `<div class="opt-text">${escHtml(opt.Text)}</div>`;
+          } else {
+            html += `<div class="opt-null">null (visual only)</div>`;
+          }
+          if (opt.Image && typeof opt.Image === 'object' && opt.Image.filename) {
+            const src = imgSrc(opt.Image.path || opt.Image.filename);
+            const desc = opt.Image.description || 'Option visual';
+            html += `<div style="font-size:10px;color:var(--muted);margin-top:4px">📎 ${escHtml(desc)}</div>`;
+            html += `<img class="crop-img" src="${src}" alt="${escHtml(desc)}"
+                 onerror="this.style.display='none';this.nextSibling.style.display='block'" />
+                 <div class="img-error" style="display:none">⚠ Could not load: ${escHtml(opt.Image.filename)}</div>`;
+          } else if (opt.Image && typeof opt.Image === 'string') {
+            const src = imgSrc(opt.Image);
+            html += `<img class="crop-img" src="${src}" alt="Option ${opt.OptionLabel} visual"
+                 onerror="this.style.display='none';this.nextSibling.style.display='block'" />
+                 <div class="img-error" style="display:none">⚠ Could not load: ${escHtml(opt.Image)}</div>`;
+          }
+          html += `</div>`;
+        });
+        html += `</div>`;
+      }
+
+      return html;
+    }
+
+    // Convert absolute server path to a browser-accessible /images/... URL
+    function imgSrc(absPath) {
+      const filename = absPath.replace(/\\/g, '/').split('/').pop();
+      return `/images/${filename}`;
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────────
+    searchBox.addEventListener('input', () => {
+      const q = searchBox.value.toLowerCase().trim();
+      if (!q) { renderQuestions(allQuestions); return; }
+      const filtered = allQuestions.filter(item =>
+        (item.QuestionText || '').toLowerCase().includes(q) ||
+        (item.QuestionTextHindi || '').toLowerCase().includes(q) ||
+        (item.Options || []).some(o => (o.Text || '').toLowerCase().includes(q))
+      );
+      renderQuestions(filtered);
+    });
+
+    // ── Expand / Collapse ─────────────────────────────────────────────────────────
+    document.getElementById('expand-all').addEventListener('click', () => {
+      questionList.querySelectorAll('.q-card').forEach(c => c.classList.add('open'));
+    });
+    document.getElementById('collapse-all').addEventListener('click', () => {
+      questionList.querySelectorAll('.q-card').forEach(c => c.classList.remove('open'));
+    });
+
+    // ── Tabs ──────────────────────────────────────────────────────────────────────
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ── Raw JSON rendering ────────────────────────────────────────────────────────
+    function renderJson(data) {
+      const raw = JSON.stringify(data, null, 2);
+      jsonPre.innerHTML = syntaxHighlight(raw);
+    }
+
+    function syntaxHighlight(str) {
+      return str
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+          if (/^"/.test(match)) {
+            return /:$/.test(match)
+              ? `<span class="json-key">${match}</span>`
+              : `<span class="json-str">${match}</span>`;
+          }
+          if (/true|false/.test(match)) return `<span class="json-bool">${match}</span>`;
+          if (/null/.test(match)) return `<span class="json-null">${match}</span>`;
+          return `<span class="json-num">${match}</span>`;
+        });
+    }
+
+    // ── Copy / Download JSON ──────────────────────────────────────────────────────
+    document.getElementById('copy-json').addEventListener('click', () => {
+      if (!rawResult) return;
+      navigator.clipboard.writeText(JSON.stringify(rawResult, null, 2))
+        .then(() => { document.getElementById('copy-json').textContent = '✅ Copied!'; setTimeout(() => document.getElementById('copy-json').textContent = '📋 Copy JSON', 2000); });
+    });
+
+    document.getElementById('download-json').addEventListener('click', () => {
+      if (!rawResult) return;
+      const blob = new Blob([JSON.stringify(rawResult, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `qextract_${rawResult.job_id || 'result'}.json`;
+      a.click();
+    });
+
+    // ── Utility ───────────────────────────────────────────────────────────────────
+    function escHtml(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+
+</html>

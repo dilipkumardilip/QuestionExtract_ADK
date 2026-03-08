@@ -1,0 +1,23 @@
+# ── Core multi-agent pipeline (Google ADK) ─────────────────────────────────────
+google-adk>=1.0.0              # Google Agent Development Kit
+google-genai>=1.0.0            # Google Gen AI SDK (Gemini)
+litellm>=1.0.0                 # LLM proxy for OpenAI/Anthropic support
+
+# ── OpenAI (optional — needed if MODEL_PROVIDER=openai) ───────────────────────
+openai>=1.30.0                 # OpenAI SDK — vision API (gpt-4o-mini)
+
+# ── Image processing ──────────────────────────────────────────────────────────
+Pillow>=10.0.0                 # Image loading and cropping
+pdf2image>=1.17.0              # PDF → PNG page conversion (requires poppler-utils)
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0           # Load .env config
+
+# ── FastAPI web server + debug UI ─────────────────────────────────────────────
+fastapi>=0.111.0               # API framework
+uvicorn[standard]>=0.29.0      # ASGI server
+python-multipart>=0.0.9        # Required for FastAPI file upload (UploadFile)
+
+# ── System dependency (install separately — not via pip) ──────────────────────
+# macOS:  brew install poppler
+# Linux:  sudo apt install poppler-utils

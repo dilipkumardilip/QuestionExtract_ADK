@@ -1,0 +1,35 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+env_adk_extract/
+venv/
+.venv/
+
+# ── Environment variables ─────────────────────────────────────────────────────
+.env
+
+# ── Output artifacts (generated at runtime) ───────────────────────────────────
+images_output/
+uploads/
+results_cache/
+results.json
+
+# ── IDE / Editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Claude / Gemini / AI tooling ──────────────────────────────────────────────
+.claude/
+.gemini/
